@@ -11,12 +11,15 @@ This project is a portfolio implementation of the practical concerns behind an i
 - **Operational visibility:** Prometheus request, latency, and fallback metrics; optional MLflow traces with prompt-content collection disabled by default.
 - **Reproducibility:** FastAPI, Docker Compose, tests, linting, and GitHub Actions CI.
 - **Safe defaults:** no API keys or model weights are committed; model names and endpoints are environment configuration.
+- **Deployment mechanics:** a Kubernetes canary rollout exercise (`k8s/`) and a Korean voice-assistant demo (Open WebUI + Whisper) built on the same gateway.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    C[Client / Open WebUI] --> G[FastAPI Gateway]
+    V[Korean voice] --> W[speaches Whisper STT]
+    W --> C[Open WebUI]
+    C --> G[FastAPI Gateway]
     G --> R{Model router}
     R -->|coding| QC[Qwen3-Coder]
     R -->|general| Q[Qwen3]
@@ -72,6 +75,8 @@ docker compose up --build
 - Gateway: `http://localhost:8080`
 - Prometheus: `http://localhost:9090`
 - MLflow: `http://localhost:5000` (on macOS, AirPlay Receiver often holds port 5000 — set `MLFLOW_HOST_PORT=5001` in `.env` if `docker compose up` fails to bind it; the gateway always reaches MLflow over the internal Docker network regardless of this setting)
+- Open WebUI: `http://localhost:3001` (Korean voice-assistant demo, see below)
+- speaches (whisper STT): `http://localhost:8000`
 
 ## API behavior
 
@@ -96,6 +101,23 @@ make load-test
 ```
 
 **Finding:** a single local Ollama instance serializes inference for one model, so it has no concurrent throughput to test. An earlier version of this test sent 2 req/s and pushed p95 latency past 50s as requests queued up behind each other, even though every request succeeded. The test now models the platform's actual usage pattern -- one active user issuing sequential requests -- against a threshold with headroom over the measured single-request baseline (~15s for `qwen3:8b` on this hardware). Scaling to real concurrent users would require either a hosted multi-replica inference backend or request queuing/backpressure in front of Ollama, which is exactly the kind of constraint the Kubernetes item below is meant to explore.
+
+## Korean voice-assistant demo
+
+`docker compose up` also starts two more services wired to the gateway (not directly to Ollama, so routing/fallback/metrics still apply to every request):
+
+- **speaches** (`ghcr.io/speaches-ai/speaches`) -- a local, OpenAI-API-compatible faster-whisper server for Korean-capable speech-to-text.
+- **open-webui** (`ghcr.io/open-webui/open-webui`) -- a chat UI with a mic button, configured with `OPENAI_API_BASE_URLS=http://gateway:8080/v1` as its only model backend, and `AUDIO_STT_*` pointed at speaches. It runs on `localhost:3001` (not 3000) to avoid colliding with an unrelated local Open WebUI instance.
+
+The gateway exposes a minimal `GET /v1/models` so Open WebUI can discover `qwen3:8b` / `qwen3-coder:30b` / `glm-4.7-flash` as its model list.
+
+```bash
+./scripts/voice-assistant-demo.sh
+```
+
+This synthesizes a Korean test clip (macOS `say`), downloads the whisper model into speaches if needed, creates the first Open WebUI admin account via its API, and drives the full path end to end: audio -> speaches transcription -> gateway `/v1/chat/completions` -> Ollama -> a Korean response. For a live demo, open `http://localhost:3001`, sign in, and use the mic icon directly.
+
+**Finding:** the whisper model choice is a real memory trade-off, not just an accuracy knob. `Systran/faster-whisper-medium` in float32 (this CPU image has no fp16 support) got OOM-killed (exit 137) sharing Docker Desktop's ~8GB VM budget with the rest of the stack; `Systran/faster-whisper-small` fits and transcribes a short Korean utterance in ~5s, at a noticeably higher word-error rate.
 
 ## Kubernetes canary deployment exercise
 
@@ -131,7 +153,7 @@ Docker Compose starts a local MLflow server and enables gateway tracing. Trace m
 - [x] Load test scenario and latency SLO threshold
 - [x] MLflow tracing, evaluation dataset, and regression gate
 - [x] Kubernetes manifests and canary deployment exercise
-- [ ] Korean document/voice-assistant demo using Open WebUI and Whisper
+- [x] Korean voice-assistant demo using Open WebUI and Whisper
 
 ## Portfolio walkthrough
 
@@ -140,7 +162,7 @@ Docker Compose starts a local MLflow server and enables gateway tracing. Trace m
 3. Show the Docker Compose stack and Prometheus request-latency graph.
 4. Run the test suite and show the GitHub Actions check.
 5. Run `./scripts/k8s-canary-demo.sh` and show the ~90/10 stable/canary traffic split, then promote or roll back with a single `kubectl scale`.
-6. Explain the next production increment: a Korean voice-assistant demo on top of the same gateway.
+6. Open `http://localhost:3001`, speak a Korean question into the mic, and show the gateway routing that voice request end to end through Whisper STT, the router, and Ollama.
 
 ## License
 

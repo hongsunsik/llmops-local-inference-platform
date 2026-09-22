@@ -64,6 +64,18 @@ async def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
+@app.get("/v1/models")
+async def list_models(request: Request) -> dict:
+    settings: Settings = request.app.state.settings
+    model_ids = dict.fromkeys([settings.default_model, settings.coder_model, settings.fallback_model])
+    return {
+        "object": "list",
+        "data": [
+            {"id": model_id, "object": "model", "owned_by": "ollama"} for model_id in model_ids
+        ],
+    }
+
+
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(payload: ChatCompletionRequest, request: Request) -> ChatCompletionResponse:
     if payload.stream:

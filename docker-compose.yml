@@ -45,3 +45,40 @@ services:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - gateway
+
+  # Speech-to-text for the voice-assistant demo (Korean-capable, multilingual
+  # faster-whisper). Exposes an OpenAI-compatible /v1/audio/transcriptions API.
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    ports:
+      - "${SPEACHES_HOST_PORT:-8000}:8000"
+    volumes:
+      - hf-hub-cache:/home/ubuntu/.cache/huggingface/hub
+
+  # Chat UI for the voice-assistant demo. It talks to the gateway as its only
+  # model backend (not directly to Ollama), so routing/fallback/metrics still
+  # apply, and to speaches for Korean speech-to-text.
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "${OPEN_WEBUI_HOST_PORT:-3001}:8080"
+    environment:
+      ENABLE_OLLAMA_API: "false"
+      OPENAI_API_BASE_URLS: http://gateway:8080/v1
+      OPENAI_API_KEYS: sk-local-demo
+      AUDIO_STT_ENGINE: openai
+      AUDIO_STT_OPENAI_API_BASE_URL: http://speaches:8000/v1
+      AUDIO_STT_OPENAI_API_KEY: does-not-matter-but-not-empty
+      # "small" rather than "medium": the whole Compose stack shares Docker
+      # Desktop's ~8GB VM budget, and "medium" in float32 (this CPU image has
+      # no fp16 support) got OOM-killed (exit 137) under that budget.
+      AUDIO_STT_MODEL: Systran/faster-whisper-small
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      - gateway
+      - speaches
+
+volumes:
+  hf-hub-cache:
+  open-webui-data:
