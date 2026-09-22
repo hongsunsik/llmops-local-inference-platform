@@ -89,11 +89,13 @@ make eval
 
 The deterministic routing evaluation set lives in `evaluation/routing_cases.jsonl`. It acts as a small regression gate: a routing-policy change that sends a coding prompt to a general model fails CI.
 
-`load-test/k6-chat.js` provides a repeatable 30-second steady-load test with a 5% error-rate and 10-second p95 latency threshold. Run it after the stack is healthy:
+`load-test/k6-chat.js` provides a repeatable 45-second single-user load test with a 5% error-rate and 20-second p95 latency threshold. Run it after the stack is healthy:
 
 ```bash
 make load-test
 ```
+
+**Finding:** a single local Ollama instance serializes inference for one model, so it has no concurrent throughput to test. An earlier version of this test sent 2 req/s and pushed p95 latency past 50s as requests queued up behind each other, even though every request succeeded. The test now models the platform's actual usage pattern -- one active user issuing sequential requests -- against a threshold with headroom over the measured single-request baseline (~15s for `qwen3:8b` on this hardware). Scaling to real concurrent users would require either a hosted multi-replica inference backend or request queuing/backpressure in front of Ollama, which is exactly the kind of constraint the Kubernetes item below is meant to explore.
 
 ## Tracing and data handling
 
