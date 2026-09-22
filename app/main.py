@@ -42,13 +42,21 @@ app = FastAPI(title="Local LLMOps Gateway", version="0.1.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health(request: Request) -> dict:
+    settings: Settings = request.app.state.settings
     try:
         response = await request.app.state.client.get("/api/tags")
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail="Ollama is unavailable") from exc
     models = [model["name"] for model in response.json().get("models", [])]
-    return {"status": "ok", "ollama_models": models}
+    return {"status": "ok", "track": settings.gateway_track, "ollama_models": models}
+
+
+@app.middleware("http")
+async def add_track_header(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Gateway-Track"] = request.app.state.settings.gateway_track
+    return response
 
 
 @app.get("/metrics")

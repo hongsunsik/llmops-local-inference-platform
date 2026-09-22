@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-stable
+  namespace: llmops
+  labels:
+    app: gateway
+    track: stable
+spec:
+  replicas: 9
+  selector:
+    matchLabels:
+      app: gateway
+      track: stable
+  template:
+    metadata:
+      labels:
+        app: gateway
+        track: stable
+    spec:
+      containers:
+        - name: gateway
+          image: llmops-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: gateway-config
+          env:
+            - name: GATEWAY_TRACK
+              value: stable
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20

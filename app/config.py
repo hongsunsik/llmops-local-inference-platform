@@ -4,7 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore": .env also carries MLFLOW_HOST_PORT, which only exists for
+    # docker-compose's host port mapping and has no matching Settings field.
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     ollama_base_url: str = "http://127.0.0.1:11434"
     default_model: str = "qwen3:8b"
@@ -16,6 +18,7 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: str = "http://127.0.0.1:5000"
     mlflow_experiment_name: str = "local-llmops-gateway"
     trace_content_enabled: bool = False
+    gateway_track: str = "stable"
 
 
 @lru_cache

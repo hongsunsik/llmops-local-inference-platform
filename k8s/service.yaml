@@ -1,0 +1,15 @@
+# A single Service selecting only the shared `app: gateway` label (not `track`)
+# load-balances across both Deployments' endpoints. Since kube-proxy spreads
+# traffic evenly per-pod, the stable/canary replica ratio approximates the
+# traffic split -- a canary rollout with no service mesh required.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: llmops
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 8080
+      targetPort: 8080

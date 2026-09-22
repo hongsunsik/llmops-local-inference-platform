@@ -97,6 +97,29 @@ make load-test
 
 **Finding:** a single local Ollama instance serializes inference for one model, so it has no concurrent throughput to test. An earlier version of this test sent 2 req/s and pushed p95 latency past 50s as requests queued up behind each other, even though every request succeeded. The test now models the platform's actual usage pattern -- one active user issuing sequential requests -- against a threshold with headroom over the measured single-request baseline (~15s for `qwen3:8b` on this hardware). Scaling to real concurrent users would require either a hosted multi-replica inference backend or request queuing/backpressure in front of Ollama, which is exactly the kind of constraint the Kubernetes item below is meant to explore.
 
+## Kubernetes canary deployment exercise
+
+`k8s/` holds manifests for a local canary rollout, run against a [kind](https://kind.sigs.k8s.io/) cluster:
+
+- `deployment-stable.yaml` / `deployment-canary.yaml` -- the same gateway image, differing only by a `GATEWAY_TRACK` env var and replica count (9 stable, 1 canary).
+- `service.yaml` -- a single Service selecting the shared `app: gateway` label across both Deployments (not `track`), so kube-proxy load-balances across every pod. No service mesh is involved: the stable/canary replica ratio *is* the traffic split.
+- The gateway surfaces its track on `GET /health` and the `X-Gateway-Track` response header, so the split is directly observable.
+
+Run it end to end:
+
+```bash
+./scripts/k8s-canary-demo.sh
+```
+
+This builds the image, creates the kind cluster if it doesn't exist, applies the manifests, and samples 50 requests through the Service to print the observed stable/canary distribution (consistently ~90/10, matching the replica ratio). Promote or roll back by rescaling:
+
+```bash
+kubectl -n llmops scale deploy/gateway-canary --replicas=9 && kubectl -n llmops scale deploy/gateway-stable --replicas=1  # promote
+kubectl -n llmops scale deploy/gateway-canary --replicas=0                                                              # roll back
+```
+
+Tear down with `kind delete cluster --name llmops-demo`.
+
 ## Tracing and data handling
 
 Docker Compose starts a local MLflow server and enables gateway tracing. Trace metadata includes selected model, roles, message count, latency, and fallback state. Raw prompts and responses are **not** logged unless `TRACE_CONTENT_ENABLED=true` is explicitly set. This makes the privacy trade-off visible in the implementation rather than leaving it as a README promise.
@@ -107,7 +130,7 @@ Docker Compose starts a local MLflow server and enables gateway tracing. Trace m
 - [x] Health endpoint, metrics, tests, and CI
 - [x] Load test scenario and latency SLO threshold
 - [x] MLflow tracing, evaluation dataset, and regression gate
-- [ ] Kubernetes manifests and canary deployment exercise
+- [x] Kubernetes manifests and canary deployment exercise
 - [ ] Korean document/voice-assistant demo using Open WebUI and Whisper
 
 ## Portfolio walkthrough
@@ -116,7 +139,8 @@ Docker Compose starts a local MLflow server and enables gateway tracing. Trace m
 2. Stop or rename the primary model and show automatic fallback in `/metrics`.
 3. Show the Docker Compose stack and Prometheus request-latency graph.
 4. Run the test suite and show the GitHub Actions check.
-5. Explain the next production increment: tracing/evaluation first, then Kubernetes deployment.
+5. Run `./scripts/k8s-canary-demo.sh` and show the ~90/10 stable/canary traffic split, then promote or roll back with a single `kubectl scale`.
+6. Explain the next production increment: a Korean voice-assistant demo on top of the same gateway.
 
 ## License
 

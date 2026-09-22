@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+  namespace: llmops
+data:
+  # kind nodes run as Docker Desktop containers, so they reach the Mac host the
+  # same way the docker-compose gateway does.
+  OLLAMA_BASE_URL: http://host.docker.internal:11434
+  DEFAULT_MODEL: qwen3:8b
+  CODER_MODEL: qwen3-coder:30b
+  FALLBACK_MODEL: glm-4.7-flash:latest
+  REQUEST_TIMEOUT_SECONDS: "120"
+  MAX_CONCURRENT_REQUESTS: "4"
+  MLFLOW_TRACING_ENABLED: "false"
