@@ -1,4 +1,4 @@
-.PHONY: install run test lint up down
+.PHONY: install run test lint eval load-test up down
 
 install:
 	python3 -m pip install -e '.[dev]'
@@ -11,6 +11,12 @@ test:
 
 lint:
 	ruff check .
+
+eval:
+	python3 scripts/evaluate_routing.py
+
+load-test:
+	docker run --rm -i --network host grafana/k6 run -e BASE_URL=http://host.docker.internal:8080 - < load-test/k6-chat.js
 
 up:
 	docker compose up --build

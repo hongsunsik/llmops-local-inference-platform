@@ -11,6 +11,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from app.config import Settings, get_settings
 from app.models import ChatCompletionRequest, ChatCompletionResponse
 from app.routing import fallback_chain, select_model
+from app.tracing import TraceRecorder
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
         timeout=httpx.Timeout(settings.request_timeout_seconds),
     )
     app.state.semaphore = asyncio.Semaphore(settings.max_concurrent_requests)
+    app.state.tracer = TraceRecorder(settings)
     yield
     await app.state.client.aclose()
 
@@ -64,51 +66,56 @@ async def chat_completions(payload: ChatCompletionRequest, request: Request) -> 
     trace_id = str(uuid.uuid4())
     started = time.perf_counter()
 
-    async with request.app.state.semaphore:
-        for attempt, model in enumerate(fallback_chain(primary_model, settings)):
-            try:
-                upstream = await request.app.state.client.post(
-                    "/api/chat",
-                    json={
-                        "model": model,
-                        "messages": [message.model_dump() for message in payload.messages],
-                        "stream": False,
-                        "options": {"temperature": payload.temperature},
-                    },
-                )
-                upstream.raise_for_status()
-                result = upstream.json()
-                fallback_used = attempt > 0
-                if fallback_used:
-                    FALLBACKS.inc()
-                REQUESTS.labels(model=model, outcome="success").inc()
-                LATENCY.labels(model=model).observe(time.perf_counter() - started)
-                logger.info(
-                    "trace_id=%s model=%s fallback_used=%s latency_seconds=%.3f",
-                    trace_id,
-                    model,
-                    fallback_used,
-                    time.perf_counter() - started,
-                )
-                return ChatCompletionResponse(
-                    id=trace_id,
-                    model=model,
-                    fallback_used=fallback_used,
-                    choices=[
-                        {
-                            "index": 0,
-                            "message": result["message"],
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    usage={
-                        "prompt_tokens": result.get("prompt_eval_count"),
-                        "completion_tokens": result.get("eval_count"),
-                    },
-                )
-            except httpx.HTTPError as exc:
-                logger.warning("trace_id=%s model=%s upstream_error=%s", trace_id, model, exc)
+    tracer: TraceRecorder = request.app.state.tracer
+    with tracer.request_span(payload, primary_model) as span:
+        async with request.app.state.semaphore:
+            for attempt, model in enumerate(fallback_chain(primary_model, settings)):
+                try:
+                    upstream = await request.app.state.client.post(
+                        "/api/chat",
+                        json={
+                            "model": model,
+                            "messages": [message.model_dump() for message in payload.messages],
+                            "stream": False,
+                            "options": {"temperature": payload.temperature},
+                        },
+                    )
+                    upstream.raise_for_status()
+                    result = upstream.json()
+                    fallback_used = attempt > 0
+                    if fallback_used:
+                        FALLBACKS.inc()
+                    latency_seconds = time.perf_counter() - started
+                    REQUESTS.labels(model=model, outcome="success").inc()
+                    LATENCY.labels(model=model).observe(latency_seconds)
+                    tracer.success(span, model, fallback_used, latency_seconds)
+                    logger.info(
+                        "trace_id=%s model=%s fallback_used=%s latency_seconds=%.3f",
+                        trace_id,
+                        model,
+                        fallback_used,
+                        latency_seconds,
+                    )
+                    return ChatCompletionResponse(
+                        id=trace_id,
+                        model=model,
+                        fallback_used=fallback_used,
+                        choices=[
+                            {
+                                "index": 0,
+                                "message": result["message"],
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        usage={
+                            "prompt_tokens": result.get("prompt_eval_count"),
+                            "completion_tokens": result.get("eval_count"),
+                        },
+                    )
+                except httpx.HTTPError as exc:
+                    logger.warning("trace_id=%s model=%s upstream_error=%s", trace_id, model, exc)
 
-    REQUESTS.labels(model=primary_model, outcome="failure").inc()
-    LATENCY.labels(model=primary_model).observe(time.perf_counter() - started)
+        tracer.failure(span, "all configured local models are unavailable")
+        REQUESTS.labels(model=primary_model, outcome="failure").inc()
+        LATENCY.labels(model=primary_model).observe(time.perf_counter() - started)
     raise HTTPException(status_code=503, detail="All configured local models are unavailable")

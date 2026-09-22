@@ -1,0 +1,4 @@
+{"id":"route-code-en","input":"Fix this Python API bug","expected_model":"qwen3-coder:30b"}
+{"id":"route-code-ko","input":"이 JavaScript 코드의 버그를 고쳐줘","expected_model":"qwen3-coder:30b"}
+{"id":"route-general-ko","input":"서울의 추천 산책 코스를 간단히 알려줘","expected_model":"qwen3:8b"}
+{"id":"route-general-en","input":"Explain the benefits of observability","expected_model":"qwen3:8b"}

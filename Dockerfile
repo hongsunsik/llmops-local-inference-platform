@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY pyproject.toml .
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir '.[observability]'
 
 RUN useradd --create-home appuser
 USER appuser

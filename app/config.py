@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     fallback_model: str = "glm-4.7-flash:latest"
     request_timeout_seconds: float = 120.0
     max_concurrent_requests: int = 4
+    mlflow_tracing_enabled: bool = False
+    mlflow_tracking_uri: str = "http://127.0.0.1:5000"
+    mlflow_experiment_name: str = "local-llmops-gateway"
+    trace_content_enabled: bool = False
 
 
 @lru_cache

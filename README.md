@@ -8,7 +8,7 @@ This project is a portfolio implementation of the practical concerns behind an i
 
 - **Model routing:** coding prompts route to `qwen3-coder:30b`; general prompts use `qwen3:8b`.
 - **Resilience:** unavailable primary models fall back to `glm-4.7-flash:latest`.
-- **Operational visibility:** Prometheus request, latency, and fallback metrics plus structured trace IDs.
+- **Operational visibility:** Prometheus request, latency, and fallback metrics; optional MLflow traces with prompt-content collection disabled by default.
 - **Reproducibility:** FastAPI, Docker Compose, tests, linting, and GitHub Actions CI.
 - **Safe defaults:** no API keys or model weights are committed; model names and endpoints are environment configuration.
 
@@ -71,6 +71,7 @@ docker compose up --build
 
 - Gateway: `http://localhost:8080`
 - Prometheus: `http://localhost:9090`
+- MLflow: `http://localhost:5000` (on macOS, AirPlay Receiver often holds port 5000 — set `MLFLOW_HOST_PORT=5001` in `.env` if `docker compose up` fails to bind it; the gateway always reaches MLflow over the internal Docker network regardless of this setting)
 
 ## API behavior
 
@@ -81,14 +82,29 @@ docker compose up --build
 ```bash
 make lint
 make test
+make eval
 ```
+
+## Evaluation and load testing
+
+The deterministic routing evaluation set lives in `evaluation/routing_cases.jsonl`. It acts as a small regression gate: a routing-policy change that sends a coding prompt to a general model fails CI.
+
+`load-test/k6-chat.js` provides a repeatable 30-second steady-load test with a 5% error-rate and 10-second p95 latency threshold. Run it after the stack is healthy:
+
+```bash
+make load-test
+```
+
+## Tracing and data handling
+
+Docker Compose starts a local MLflow server and enables gateway tracing. Trace metadata includes selected model, roles, message count, latency, and fallback state. Raw prompts and responses are **not** logged unless `TRACE_CONTENT_ENABLED=true` is explicitly set. This makes the privacy trade-off visible in the implementation rather than leaving it as a README promise.
 
 ## Roadmap
 
 - [x] Local multi-model routing and fallback
 - [x] Health endpoint, metrics, tests, and CI
-- [ ] Load test scenario and latency SLO dashboard
-- [ ] MLflow tracing, evaluation dataset, and regression gate
+- [x] Load test scenario and latency SLO threshold
+- [x] MLflow tracing, evaluation dataset, and regression gate
 - [ ] Kubernetes manifests and canary deployment exercise
 - [ ] Korean document/voice-assistant demo using Open WebUI and Whisper
 

@@ -18,3 +18,5 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest -q
+      - name: Routing evaluation gate
+        run: python scripts/evaluate_routing.py
