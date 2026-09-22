@@ -142,6 +142,8 @@ kubectl -n llmops scale deploy/gateway-canary --replicas=0                      
 
 Tear down with `kind delete cluster --name llmops-demo`.
 
+**Note:** the kind cluster's node and the docker-compose stack share the same Docker Desktop VM memory budget (~8GB by default). Running both this demo (10 gateway pods) and the full voice-assistant stack below at the same time can trip that limit -- observed as pods getting `OOMKilled` and Kubernetes transparently restarting them. Run one demo at a time, or raise Docker Desktop's memory limit, if you see restarts.
+
 ## Tracing and data handling
 
 Docker Compose starts a local MLflow server and enables gateway tracing. Trace metadata includes selected model, roles, message count, latency, and fallback state. Raw prompts and responses are **not** logged unless `TRACE_CONTENT_ENABLED=true` is explicitly set. This makes the privacy trade-off visible in the implementation rather than leaving it as a README promise.
