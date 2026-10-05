@@ -4,6 +4,15 @@
 
 This project is a portfolio implementation of the practical concerns behind an internal LLM platform: model routing, failure handling, reproducible deployment, and observability. It intentionally uses local models so the complete demo can run on a developer laptop without cloud inference costs.
 
+## Key results
+
+- **Latency bottleneck diagnosed:** a 2 req/s k6 load test pushed p95 to **50.7s** with 0% errors — pure queueing, because one local Ollama instance serializes inference per model. Redesigned the scenario around the real usage pattern and set an SLO from the measured baseline: p95 **15.0s** (threshold 20s). [Details](#evaluation-and-load-testing)
+- **Canary rollout measured:** on a local kind cluster, 9:1 stable/canary replicas produced an observed **~90/10** traffic split over 50 sampled requests; promote or roll back with one `kubectl scale`. [Details](#kubernetes-canary-deployment-exercise)
+- **3 real integration failures found and fixed:**
+  - MLflow 3.5+ Host-header validation returned **403 on every trace** sent via the Docker service name → allow-listed hosts with `MLFLOW_SERVER_ALLOWED_HOSTS`. [Details](#troubleshooting-notes)
+  - Whisper `medium` (float32, CPU) was **OOM-killed (exit 137)** inside an ~8GB Docker VM → switched to `small` (~5s per short Korean utterance). [Details](#korean-voice-assistant-demo)
+  - macOS AirPlay Receiver holds port 5000 → made the MLflow host port configurable.
+
 ## What it demonstrates
 
 - **Model routing:** coding prompts route to `qwen3-coder:30b`; general prompts use `qwen3:8b`.
@@ -147,6 +156,18 @@ Tear down with `kind delete cluster --name llmops-demo`.
 ## Tracing and data handling
 
 Docker Compose starts a local MLflow server and enables gateway tracing. Trace metadata includes selected model, roles, message count, latency, and fallback state. Raw prompts and responses are **not** logged unless `TRACE_CONTENT_ENABLED=true` is explicitly set. This makes the privacy trade-off visible in the implementation rather than leaving it as a README promise.
+
+## Troubleshooting notes
+
+**MLflow 403 behind Docker Compose.** After wiring the gateway to MLflow, every trace upload failed with `403 Forbidden`, while the MLflow UI worked fine from the host browser. MLflow 3.5+ validates the HTTP `Host` header to block DNS-rebinding attacks, and its default allow-list only covers localhost. Inside the Compose network the gateway calls `http://mlflow:5000`, so the `Host: mlflow:5000` header was rejected. The fix is to allow-list the service name explicitly in `docker-compose.yml`:
+
+```yaml
+MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:*,localhost,localhost:*,127.0.0.1,127.0.0.1:*
+```
+
+Without this, tracing silently does nothing in Docker even though the same code works when MLflow runs on the host.
+
+**Port 5000 already in use on macOS.** AirPlay Receiver (ControlCenter) binds port 5000, so `docker compose up` failed to publish MLflow. `MLFLOW_HOST_PORT` now changes only the host-side port; container-to-container traffic still uses 5000, so the gateway is unaffected.
 
 ## Roadmap
 
